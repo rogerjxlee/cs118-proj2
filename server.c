@@ -15,6 +15,8 @@
 #define HEADER_SIZE 3*4
 #define PACKET_SIZE MAX_DATA_SIZE + HEADER_SIZE
 
+#define TIMEOUT
+
 typedef struct  
 {
 	char type[4];
@@ -22,6 +24,11 @@ typedef struct
 	uint32_t length;
 	char data[MAX_DATA_SIZE];
 } packet;
+
+int random (float p) {
+	return p > ((float) rand()) / ((float) RAND_MAX);
+}
+
 
 void sigchld_handler(int s)
 {
@@ -55,8 +62,8 @@ int main(int argc, char *argv[]) {
 
     // read in cwd, pl, and pc parameters
     int cwnd = atoi(argv[2]);
-    double pl = atof(argv[3]);
-    double pc = atof(argv[4]);
+    float pl = atof(argv[3]);
+    float pc = atof(argv[4]);
 
     if (bind(sockfd, (struct sockaddr *) &serv_addr,
             sizeof(serv_addr)) < 0) 
