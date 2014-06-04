@@ -12,14 +12,13 @@
 #include <sys/stat.h>
 
 #define MAX_DATA_SIZE 1024
-#define HEADER_SIZE 5*4
+#define HEADER_SIZE 4*4
 #define PACKET_SIZE MAX_DATA_SIZE + HEADER_SIZE
 
 #define TIMEOUT
 
 typedef struct  
 {
-	char type[4];
 	uint32_t seq;
 	uint32_t ack;
 	uint32_t fin;
@@ -27,10 +26,9 @@ typedef struct
 	char data[MAX_DATA_SIZE];
 } packet;
 
-int random (float p) {
-	return p > ((float) rand()) / ((float) RAND_MAX);
+int lostorcorrupt (float p) {
+	return (p >= ((float) rand()) / ((float) RAND_MAX));
 }
-
 
 void sigchld_handler(int s)
 {
@@ -88,12 +86,10 @@ int main(int argc, char *argv[]) {
     /********** Start Server **********/
     int recvlen;
     char buf[PACKET_SIZE];
+    packet* recvpacket;
 
     long filesize = 0;
-    FILE* fp = NULL;
-
-    long remainingSize = 0;
-    long seq = 0; 
+    FILE* fp = NULL;    
 
     printf("waiting for file request");
 
@@ -103,57 +99,83 @@ int main(int argc, char *argv[]) {
         if (recvlen < 0) 
             error("ERROR on receiving");
 
-        srand(time(NULL));
-
-        int lost = random(pl);
-        int corrupt = random(pc);
-
-        if (lost || corrupt) {
-        	printf("(ACK lost or corrupted) Timeout");
-        }
-
-        packet* recvPacket = (packet*) buf;
+        recvpacket = (packet*) buf;
         
-        printf("DATA received seq#%i ack#%i fin %i ")
+        printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i", 
+        	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
-        if(strmcmp(recvPacket->type, "REQ") == 0) {
-        	fp = fopen(recvPacket->data,"rb");
+        if(recvpacket-> seq== 0 && recvpacket->ack == 0) {
+        	fp = fopen(recvpacket->data,"rb");
         	if (fp == NULL) {
-        		packet errorPacket;
-        		strcpy(errorPacket.type, "ERR");
-        		sendto(sockfd, &errorPacket, 4, 0, (struct sockaddr *)&cli_addr, clilen);
-                fprintf(stderr, "File \"%s\" not found \n", recvPacket->data);
+        		packet errorpacket;
+        		errorpacket.seq = 0;
+        		errorpacket.ack = 0;
+        		strcpy(errorpacket.data, "File not found");
+        		sendto(sockfd, &errorpacket, 4, 0, (struct sockaddr *)&cli_addr, clilen);
+                fprintf(stderr, "File \"%s\" not found \n", recvpacket->data);
         		continue;
         	}
+
         	fseek(fp,0L,SEEK_END);
             filesize = ftell(fp);
             fseek(fp, 0L, SEEK_SET);
             char contents[filesize+1];
             int read = fread(contents,1,filesize,fp);
             contents[filesize] = 0;
-            remainingSize = filesize;
-            int numPackets = filesize / MAX_DATA_SIZE;
-            packet packet[numPackets];
+
+            int numpackets = filesize / MAX_DATA_SIZE;
+            packet packets[numpackets];
+
             int i;
-            for (i = 0; i < numPackets; i++) {
-            	char type[4] = "DAT";
-				uint32_t seq = 0;
-				uint32_t length = MAX_DATA_SIZE;
-				char data[MAX_DATA_SIZE];
-				packet[i]->type;
+            for (i = 0; i < numpackets; i++) {
+            	if (i == numpackets-1) {
+            		packets[i].length = filesize % MAX_DATA_SIZE;
+            	}
+            	else {
+            		packets[i].length = MAX_DATA_SIZE;
+            	}
+            	packets[i].seq = i * MAX_DATA_SIZE;            	
+            	packets[i].ack = recvpacket->length;
+				packets[i].fin = 0;
+				memcpy(packets[i].data , contents + packets[i].seq, packets[i].length);
             }
 
             int cwndhead = 0;
 			int cwndtail = cwnd;
-			for (i = cwndhead; i < cwndtail; i++) {
 
+			for (i = cwndhead; i < cwndtail; i++) {
+				sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
 			}
 
-            while(remainingSize > 0) {
+			// ACK handling
+			while(1) {
+				recvlen = recvfrom(sockfd, buf, PACKET_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
+
+				if (recvlen < 0) 
+            		error("ERROR on receiving");
+
+        		recvpacket = (packet*) buf;
+
+				srand(time(NULL));
+
+				int lost = lostorcorrupt(pl);
+			    int corrupt = lostorcorrupt(pc);
+
+			    if (lost || corrupt) {
+			    	printf("(ACK lost or corrupted) Timeout");
+			    	continue;
+			    }
+
+			    printf("ACK received seq#%i, ACK#%i, FIN %i, content-length: %i",
+			    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
+			    break;
+			}
+
+            //while(remainingsize > 0) { // fix this
 								
 
-            	sendto(sockfd, curPacket->packet, curDataSize + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-            }
+            	//sendto(sockfd, curPacket->packet, curDataSize + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
+            //}
         	
         }
 
@@ -163,7 +185,7 @@ int main(int argc, char *argv[]) {
         
         if (pid == 0)  { // fork() returns a value of 0 to the child process
             close(sockfd);
-            dostuff(newsockfd);
+            //dostuff(newsockfd);
             exit(0);
         }
         else //returns the process ID of the child process to the parent
