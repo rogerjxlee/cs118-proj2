@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
         		errorpacket.seq = 0;
         		errorpacket.ack = 0;
         		strcpy(errorpacket.data, "File not found");
-        		sendto(sockfd, &errorpacket, 4, 0, (struct sockaddr *)&cli_addr, clilen);
+        		sendto(sockfd, &errorpacket, HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
                 fprintf(stderr, "File \"%s\" not found \n", recvpacket->data);
         		continue;
         	}
