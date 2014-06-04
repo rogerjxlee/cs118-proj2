@@ -12,7 +12,7 @@
 #include <sys/stat.h>
 
 #define MAX_DATA_SIZE 1024
-#define HEADER_SIZE 3*4
+#define HEADER_SIZE 5*4
 #define PACKET_SIZE MAX_DATA_SIZE + HEADER_SIZE
 
 #define TIMEOUT
@@ -21,6 +21,8 @@ typedef struct
 {
 	char type[4];
 	uint32_t seq;
+	uint32_t ack;
+	uint32_t fin;
 	uint32_t length;
 	char data[MAX_DATA_SIZE];
 } packet;
@@ -93,14 +95,27 @@ int main(int argc, char *argv[]) {
     long remainingSize = 0;
     long seq = 0; 
 
+    printf("waiting for file request");
+
     while (1) {
         recvlen = recvfrom(sockfd, buf, PACKET_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
         
         if (recvlen < 0) 
             error("ERROR on receiving");
 
+        srand(time(NULL));
+
+        int lost = random(pl);
+        int corrupt = random(pc);
+
+        if (lost || corrupt) {
+        	printf("(ACK lost or corrupted) Timeout");
+        }
+
         packet* recvPacket = (packet*) buf;
         
+        printf("DATA received seq#%i ack#%i fin %i ")
+
         if(strmcmp(recvPacket->type, "REQ") == 0) {
         	fp = fopen(recvPacket->data,"rb");
         	if (fp == NULL) {

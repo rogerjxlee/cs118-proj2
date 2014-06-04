@@ -11,8 +11,7 @@
 #include <sys/utsname.h>
 #include <sys/stat.h>
 
-#define PACKET_SZIE 1000
-#define HEADER_SIZE 4*3
+
 
 void sigchld_handler(int s)
 {
@@ -29,9 +28,5 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    sockfd = socket(AF_INET. SOCK_DGRAM, 0);
-    if (sockfd < 0) 
-        error("ERROR opening socket");
-     bzero((char *) &serv_addr, sizeof(serv_addr));
-     
+
 }
