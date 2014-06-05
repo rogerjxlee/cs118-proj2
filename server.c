@@ -14,7 +14,7 @@
 #define HEADER_SIZE 4*4
 #define PACKET_SIZE MAX_DATA_SIZE + HEADER_SIZE
 
-#define TIMEOUT 2
+#define TIMEOUT 5
 
 typedef struct  
 {
@@ -104,6 +104,9 @@ int main(int argc, char *argv[]) {
     while (1) {
         recvlen = recvfrom(sockfd, buf, PACKET_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
         
+        //printf("%i\n",cli_addr.sin_addr.s_addr);
+        //printf("%i\n",cli_addr.sin_port);
+
         if (recvlen < 0) 
             error("ERROR on receiving\n");
 
@@ -130,14 +133,14 @@ int main(int argc, char *argv[]) {
             char contents[filesize+1];
             int read = fread(contents,1,filesize,fp);
             contents[filesize] = 0;
-
-            int numpackets = filesize / MAX_DATA_SIZE;
+            int remainingbytes = filesize % MAX_DATA_SIZE;
+            int numpackets = filesize / MAX_DATA_SIZE + (remainingbytes > 0);
             packet packets[numpackets];
 
             int i;
             for (i = 0; i < numpackets; i++) {
             	if (i == numpackets-1) {
-            		packets[i].length = filesize % MAX_DATA_SIZE;
+            		packets[i].length = remainingbytes;
             	}
             	else {
             		packets[i].length = MAX_DATA_SIZE;
@@ -148,12 +151,14 @@ int main(int argc, char *argv[]) {
 				memcpy(packets[i].data , contents + packets[i].seq, packets[i].length);
             }
 
+            printf("Data: %s\n",packets[0].data);
+
             int cwndhead = 0;
 			int cwndtail = cwnd;
-
+            printf("numpackets:%i\n",numpackets);
 			for (i = cwndhead; i < cwndtail; i++) {
 				if (i < numpackets) {
-					sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
+					sendto(sockfd, &(packets[i]), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
 					printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 	        			packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 				}
@@ -162,7 +167,9 @@ int main(int argc, char *argv[]) {
 			// ACK handing, data transmission, window sliding
 			while(1) {
 				FD_SET(sockfd, &readfds);
-				readysocks = select(1, &readfds, NULL, NULL, &tv);
+				readysocks = select(sockfd+1, &readfds, NULL, NULL, &tv);
+
+                printf("readysocks: %i\n",readysocks);
 
 				if (readysocks == -1) {
 					error("Select sockets error\n");
@@ -189,7 +196,7 @@ int main(int argc, char *argv[]) {
 				    printf("ACK received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
-				   	printf("sliding window");
+				   	printf("sliding window\n");
 
 				   	int lastsent = cwndtail;
 
@@ -201,12 +208,12 @@ int main(int argc, char *argv[]) {
 				    for (i = lastsent + 1; i < cwndtail; i++) {
 				    	if (i < numpackets) {
 				    		sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-				    		printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i", 
+				    		printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 	        					packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 						}
 				    }
 					if(cwndhead >= numpackets) {
-						printf("file transfer complete");
+						printf("file transfer complete\n");
 						break;
 					}
 				}
@@ -214,8 +221,9 @@ int main(int argc, char *argv[]) {
 					printf("timeout, retransmitting packets in window\n");
 					for (i = cwndhead; i < cwndtail; i++) {
 						if (i < numpackets) {
-							sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-							printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i", 
+                            printf("packet %i\n", i);
+							sendto(sockfd, &packets[i], packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
+							printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 			        			packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 						}
 					}
@@ -234,12 +242,12 @@ int main(int argc, char *argv[]) {
         	finpacket.fin = 1;
         	finpacket.length = 0;
         	sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-        	printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i", 
+        	printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 			        			finpacket.seq, finpacket.ack, finpacket.fin, finpacket.length);
 
         	while(1) {
         		FD_SET(sockfd, &readfds);
-				readysocks = select(1, &readfds, NULL, NULL, &tv);
+				readysocks = select(sockfd+1, &readfds, NULL, NULL, &tv);
 
 				if (readysocks == -1) {
 					error("Select sockets error\n");
@@ -259,11 +267,11 @@ int main(int argc, char *argv[]) {
 				    int corrupt = lostorcorrupt(pc);
 
 				    if (lost || corrupt) {
-				    	printf("(ACK lost or corrupted) Timeout");
+				    	printf("(ACK lost or corrupted) Timeout\n");
 				    	continue;
 				    }
 
-				    printf("FINACK received seq#%i, ACK#%i, FIN %i, content-length: %i",
+				    printf("FINACK received seq#%i, ack#%i, fin %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
 				    packet finackpacket;
@@ -272,12 +280,12 @@ int main(int argc, char *argv[]) {
 		        	finackpacket.fin = 1;
 		        	finackpacket.length = 0;
 		        	sendto(sockfd, &finackpacket, finackpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-		        	printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i", 
+		        	printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 					        			finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
 				    break;
 				}
 				else {
-					printf("timeout, retransmitting fin");
+					printf("timeout, retransmitting fin\n");
 					sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
 					tv.tv_sec = TIMEOUT;
 				}
