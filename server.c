@@ -195,15 +195,17 @@ int main(int argc, char *argv[]) {
 
 				    printf("ACK received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
-
+				    int lastsent = cwndtail;
+				    if(!(recvpacket->ack == 0 && recvpacket->seq == 0 && recvpacket->length != 0)) {
 				   	printf("sliding window\n");
 
-				   	int lastsent = cwndtail;
+				   	lastsent = cwndtail;
 
 				   	if (recvpacket->ack / PACKET_SIZE > cwndhead) {
 				   		cwndhead = recvpacket->ack / PACKET_SIZE;
 				    	cwndtail = cwndhead + cwnd;	
 				   	}
+				    }
 				    
 				    for (i = lastsent + 1; i < cwndtail; i++) {
 				    	if (i < numpackets) {
@@ -234,16 +236,18 @@ int main(int argc, char *argv[]) {
         	tv.tv_sec = TIMEOUT;
         	cwndhead = 0;
         	cwndtail = cwnd;
-
+		packet finpacket;
         	//Fin and Finack
-        	packet finpacket;
-        	finpacket.seq = recvpacket->ack;
-        	finpacket.ack = recvpacket->seq;
-        	finpacket.fin = 1;
-        	finpacket.length = 0;
-        	sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-        	printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+		printf("File size: %i\n", (int)filesize);
+		if(!(recvpacket->seq == 0 && recvpacket->ack == 0 && recvpacket->length != 0) && recvpacket->ack == filesize) {
+        		finpacket.seq = recvpacket->ack;
+        		finpacket.ack = recvpacket->seq;
+        		finpacket.fin = 1;
+        		finpacket.length = 0;
+        		sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
+        		printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 			        			finpacket.seq, finpacket.ack, finpacket.fin, finpacket.length);
+		}
 
         	while(1) {
         		FD_SET(sockfd, &readfds);
@@ -274,7 +278,7 @@ int main(int argc, char *argv[]) {
 				    printf("FINACK received seq#%i, ack#%i, fin %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
-				    packet finackpacket;
+				packet finackpacket;
 		        	finackpacket.seq = recvpacket->ack;
 		        	finackpacket.ack = recvpacket->seq;
 		        	finackpacket.fin = 1;
@@ -284,7 +288,7 @@ int main(int argc, char *argv[]) {
 					        			finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
 				    break;
 				}
-				else {
+				else if(!(recvpacket->seq == 0 && recvpacket->ack == 0 && recvpacket->length != 0) && recvpacket->ack == filesize) {
 					printf("timeout, retransmitting fin\n");
 					sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
 					tv.tv_sec = TIMEOUT;
