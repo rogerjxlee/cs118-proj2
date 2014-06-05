@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
         {
             ackpacket.seq = recvpacket->ack; // Sequence # doesn't matter so just set the client seq to the server ack
 			ackpacket.ack = recvpacket->seq + recvpacket->length; // ACK = received sequence # + length of data packet
-            seqCount = ackpacket.seq + recvpacket->length; // Update the expected sequence #
+            seqCount = recvpacket->seq + recvpacket->length; // Update the expected sequence #
 
             // realloc more memory as needed
             if (bytesRead + recvpacket->length > memSize)
@@ -178,16 +178,7 @@ int main(int argc, char *argv[])
 
         }
 
-	   // Send ACK with proper sequence number
-	   //if (sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-        sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
-        if (sent < 0)
-	   {
-	    	error("ERROR: sending failed"); 
-	    	return 0;
-	   }
-       printf("ACK sent: seq#%i, ack#%i, fin %i, content-length: %i\n", 
-        	ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
+	   
 
 	   //File download complete. Write file to disk and break.
         if(recvpacket->fin == 1)
@@ -200,8 +191,32 @@ int main(int argc, char *argv[])
             FILE* fp = fopen(newFileName, "w");
             fwrite(newFile, 1, bytesRead, fp);
             fclose(fp);
+
+            ackpacket.fin = 1;
+
+            sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
+            if (sent < 0)
+           {
+                error("ERROR: sending failed"); 
+                return 0;
+           }
+           printf("FINACK sent: seq#%i, ack#%i, fin %i, content-length: %i\n", 
+                ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
+
             break;
         }
+
+        // Send ACK with proper sequence number
+       //if (sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+        sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
+        if (sent < 0)
+       {
+            error("ERROR: sending failed"); 
+            return 0;
+       }
+       printf("ACK sent: seq#%i, ack#%i, fin %i, content-length: %i\n", 
+            ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
+
 	} // end while
 	
     free(buffer);

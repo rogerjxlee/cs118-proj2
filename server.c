@@ -280,7 +280,7 @@ int main(int argc, char *argv[]) {
 		        	finackpacket.fin = 1;
 		        	finackpacket.length = 0;
 		        	sendto(sockfd, &finackpacket, finackpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-		        	printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+		        	printf("FINACK sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 					        			finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
 				    break;
 				}
