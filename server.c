@@ -99,17 +99,17 @@ int main(int argc, char *argv[]) {
     long filesize = 0;
     FILE* fp = NULL;
 
-    printf("waiting for file request");
+    printf("waiting for file request\n");
 
     while (1) {
         recvlen = recvfrom(sockfd, buf, PACKET_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
         
         if (recvlen < 0) 
-            error("ERROR on receiving");
+            error("ERROR on receiving\n");
 
         recvpacket = (packet*) buf;
         
-        printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i", 
+        printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i\n", 
         	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
         if(recvpacket-> seq== 0 && recvpacket->ack == 0) {
@@ -154,7 +154,7 @@ int main(int argc, char *argv[]) {
 			for (i = cwndhead; i < cwndtail; i++) {
 				if (i < numpackets) {
 					sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-					printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i", 
+					printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
 	        			packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 				}
 			}
@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
 					recvlen = recvfrom(sockfd, buf, PACKET_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
 
 					if (recvlen < 0) 
-	            		error("ERROR on receiving");
+	            		error("ERROR on receiving\n");
 
 	        		recvpacket = (packet*) buf;
 
@@ -182,11 +182,11 @@ int main(int argc, char *argv[]) {
 				    int corrupt = lostorcorrupt(pc);
 
 				    if (lost || corrupt) {
-				    	printf("(ACK lost or corrupted) Timeout");
+				    	printf("(ACK lost or corrupted) Timeout\n");
 				    	continue;
 				    }
 
-				    printf("ACK received seq#%i, ACK#%i, FIN %i, content-length: %i",
+				    printf("ACK received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
 				   	printf("sliding window");
@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
 					}
 				}
 				else {
-					printf("timeout, retransmitting packets in window");
+					printf("timeout, retransmitting packets in window\n");
 					for (i = cwndhead; i < cwndtail; i++) {
 						if (i < numpackets) {
 							sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);

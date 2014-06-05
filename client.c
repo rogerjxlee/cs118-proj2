@@ -40,6 +40,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in serv_addr;
     struct hostent *server; //contains tons of information, including the server's IP address
 
+    socklen_t servlen;
 
     if (argc != 6) {
        fprintf(stderr,"Usage: %s <sender hostname> <sender portnumber> <filename> Pl PC\n", argv[0]);
@@ -59,32 +60,33 @@ int main(int argc, char *argv[])
     
     
 
-    bzero((char *) &serv_addr, sizeof(serv_addr));
+    memset((char *) &serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET; //initialize server's address
-    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
+    bcopy((char *)server->h_addr, (char *)&(serv_addr.sin_addr.s_addr), server->h_length);
     serv_addr.sin_port = htons(portno);
 
     float pl = (atof(argv[4])); //probability of corrupt packet
     float pc = (atof(argv[5])); //probability of lost packet
-
-    printf("%i\n",*(server->h_addr));
-    printf("%i\n", serv_addr.sin_addr.s_addr);
     
+    servlen = sizeof(serv_addr);
+
     /*********************************/
     /****** Start file transfer ******/
 
     // Request for file (send filename)
-    packet *reqpacket;
-    reqpacket->seq = 0;
-    reqpacket->length = strlen(argv[3])+1;
-	reqpacket->fin = 0;
-	strncpy(reqpacket->data, argv[3], MAX_DATA_SIZE);
+    packet reqpacket;
+    reqpacket.ack = 0;
+    reqpacket.seq = 0;
+    reqpacket.length = strlen(argv[3])+1;
+	reqpacket.fin = 0;
+	strncpy(reqpacket.data, argv[3], MAX_DATA_SIZE);
 
 	//Print out Send request
 	printf("DATA requested seq#%i, ack#%i, fin %i, content-length: %i\n", 
-        	reqpacket->seq, reqpacket->ack, reqpacket->fin, reqpacket->length);
-	
-   if (sendto(sockfd, &reqpacket, HEADER_SIZE + reqpacket->length, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+        	reqpacket.seq, reqpacket.ack, reqpacket.fin, reqpacket.length);
+	fflush(stdout);
+
+    if (sendto(sockfd, &reqpacket, HEADER_SIZE + reqpacket.length, 0, (struct sockaddr *)&serv_addr, servlen) < 0){
     	error("ERROR: sending failed"); 
     	return 0;
     }
