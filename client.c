@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
         //ackPacket->fin = 0;
 
         packet ackpacket;
-        ackpacket.seq = 0;
+        ackpacket.seq = recvpacket->ack;
         ackpacket.fin = 0;
         ackpacket.length = 0; 
 
