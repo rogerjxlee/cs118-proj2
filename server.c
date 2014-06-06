@@ -99,6 +99,8 @@ int main(int argc, char *argv[]) {
     long filesize = 0;
     FILE* fp = NULL;
 
+    srand(time(NULL));
+
     printf("waiting for file request\n");
 
     while (1) {
@@ -185,7 +187,7 @@ int main(int argc, char *argv[]) {
 
 	        		recvpacket = (packet*) buf;
 
-					srand(time(NULL));
+					
 
 					int lost = lostorcorrupt(pl);
 				    int corrupt = lostorcorrupt(pc);
@@ -250,7 +252,7 @@ int main(int argc, char *argv[]) {
             printf("File size: %i\n", (int)filesize);
             if(!(recvpacket->seq == 0 && recvpacket->ack == 0 && recvpacket->length != 0) && recvpacket->ack == filesize) {
         		finpacket.seq = recvpacket->ack;
-        		finpacket.ack = recvpacket->seq;
+        		finpacket.ack = recvpacket->seq + 1;
         		finpacket.fin = 1;
         		finpacket.length = 0;
         		sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
@@ -273,13 +275,8 @@ int main(int argc, char *argv[]) {
 
 	        		recvpacket = (packet*) buf;
 
-					srand(time(NULL));
-
 					int lost = lostorcorrupt(pl);
 				    int corrupt = lostorcorrupt(pc);
-
-                    printf("lost %i\n", lost);
-                    printf("corrupt %i\n", corrupt);
 
 				    if (lost || corrupt) {
 				    	printf("(ACK lost or corrupted) Timeout\n");
@@ -291,12 +288,12 @@ int main(int argc, char *argv[]) {
 
 				    packet finackpacket;
 		        	finackpacket.seq = recvpacket->ack;
-		        	finackpacket.ack = recvpacket->seq;
+		        	finackpacket.ack = recvpacket->seq + 1;
 		        	finackpacket.fin = 1;
 		        	finackpacket.length = 0;
 		        	sendto(sockfd, &finackpacket, finackpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
 		        	printf("FINACK sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
-					        			finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
+                        finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
                     printf("close connection\n");
 				    break;
 				}

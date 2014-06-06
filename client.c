@@ -13,7 +13,7 @@
 #define HEADER_SIZE 4*4
 #define PACKET_SIZE MAX_DATA_SIZE + HEADER_SIZE
 
-#define TIMEOUT 5
+#define TIMEOUT 2
 
 typedef struct  
 {
@@ -72,6 +72,12 @@ int main(int argc, char *argv[])
     /****** Start file transfer ******/
 
     // Request for file (send filename)
+    srand(time(NULL));
+
+    struct timeval tv;
+    tv.tv_sec = TIMEOUT;
+    tv.tv_usec = 0;
+
     packet reqpacket;
     reqpacket.seq = 0;
     reqpacket.ack = 0;    
@@ -96,6 +102,10 @@ int main(int argc, char *argv[])
     long seqCount = 0;
     int complete = 0;
 
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    int readysocks;
+
     //servlen = sizeof(serv_addr);
 
     // Begin ACK response Sequence
@@ -109,7 +119,6 @@ int main(int argc, char *argv[])
     
         packet* recvpacket = (packet*) buffer;
 
-        srand(time(NULL));
         // Simulate corrupt or dropped packets
         int corrupt = lostorcorrupt(pc);
         int dropped = lostorcorrupt(pl);
@@ -138,8 +147,6 @@ int main(int argc, char *argv[])
             }
         }
         else {
-
-
             //File not found on server
             if(recvpacket->ack == 0 && recvpacket->seq == 0)
             {
@@ -174,11 +181,8 @@ int main(int argc, char *argv[])
 
             }
 
-    	   
-
     	   //File download complete. Write file to disk and break.
-            if(recvpacket->fin == 1)
-            {
+            if(recvpacket->fin == 1 && recvpacket->seq == seqCount) {
                 printf("file transfer complete, saving file as recv_%s\n", argv[3]);
                 char* newFileName = malloc(sizeof(char)*(strlen(argv[3])) + 6);
                 strcpy(newFileName, "recv_");
@@ -188,23 +192,80 @@ int main(int argc, char *argv[])
                 fwrite(newFile, 1, bytesRead, fp);
                 fclose(fp);
 
-                ackpacket.fin = 1;
+                //ackpacket.fin = 1;
+                //ackpacket.ack = recvpacket->seq + 1;
 
-                sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
+                packet finackpacket;
+                finackpacket.seq = recvpacket->ack;
+                finackpacket.ack = recvpacket->seq + 1;
+                finackpacket.fin = 1;
+                finackpacket.length = 0;
+
+                sent = sendto(sockfd, &finackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
                 if (sent < 0) {
                     error("ERROR: sending failed"); 
                     return 0;
                 }
                 printf("FINACK sent: seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
-                    ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
-                printf("close connection\n");
+                    finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
+
+                while(1) {
+                    FD_SET(sockfd, &readfds);
+                    readysocks = select(sockfd+1, &readfds, NULL, NULL, &tv);
+
+                    if (readysocks == -1) {
+                        error("Select sockets error\n");
+                    }
+                    else if(readysocks) {
+                        recvlen = recvfrom(sockfd, buffer, PACKET_SIZE, 0, (struct sockaddr *) &serv_addr, &servlen);
+
+                        if (recvlen < 0) 
+                            error("ERROR on receiving");
+
+                        recvpacket = (packet*) buffer;
+
+                        int lost = lostorcorrupt(pl);
+                        int corrupt = lostorcorrupt(pc);
+
+                        if (lost || corrupt) {
+                            printf("(ACK lost or corrupted) Timeout\n");
+                            continue;
+                        }
+
+                        if (recvpacket->fin == 1 && recvpacket->seq == seqCount) {
+                            printf("DATA received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
+                                recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
+
+                            sendto(sockfd, &finackpacket, finackpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
+                            printf("FINACK sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
+                                finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
+                        }
+                        else if (recvpacket->fin == 1 && recvpacket->seq == seqCount + 1) {
+                            printf("FINACK received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
+                                recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
+                            printf("close connection\n");
+                            tv.tv_sec = TIMEOUT;
+                            break;
+                        }
+                        tv.tv_sec = TIMEOUT;
+                    }
+                    else {
+                        printf("timeout, retransmitting finack\n");
+                        sendto(sockfd, &finackpacket, finackpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
+                        printf("FINACK sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
+                            finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
+                        tv.tv_sec = TIMEOUT;
+                    }
+                    tv.tv_sec = TIMEOUT;
+                }
+
                 break;
             }
 
             // Send ACK with proper sequence number
-           //if (sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    	// If the first data packet is corrupt, then re-send request
-           if(recvpacket->ack == strlen(argv[3])+1 && recvpacket->seq == 0 && corrupt) {
+            //if (sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    	    // If the first data packet is corrupt, then re-send request
+            if(recvpacket->ack == strlen(argv[3])+1 && recvpacket->seq == 0 && corrupt) {
     			ackpacket.length = strlen(argv[3])+1;
     		}
         } // end else
