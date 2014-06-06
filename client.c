@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     socklen_t servlen;
 
     if (argc != 6) {
-       fprintf(stderr,"Usage: %s <sender hostname> <sender portnumber> <filename> Pl PC\n", argv[0]);
+       fprintf(stderr,"Usage: client <sender hostname> <sender portnumber> <filename> <Pl> <Pc>\n");
        exit(0);
     }
 
@@ -102,13 +102,11 @@ int main(int argc, char *argv[])
     while (1)
     {
 	    memset(buffer, 0, PACKET_SIZE);
-        printf("got here\n");
-        //printf("%i\n",serv_addr.sin_addr.s_addr);
-        //printf("%i\n",serv_addr.sin_port);
+        
 	    int recvlen = recvfrom(sockfd, buffer, PACKET_SIZE, 0, (struct sockaddr *)&serv_addr, &servlen);        
         if (recvlen < 0)
             error("ERROR on receiving");
-        printf("got here\n");
+    
         packet* recvpacket = (packet*) buffer;
 
         srand(time(NULL));
@@ -116,118 +114,109 @@ int main(int argc, char *argv[])
         int corrupt = lostorcorrupt(pc);
         int dropped = lostorcorrupt(pl);
 
-        // Packet Lost or Dropped
-        if (dropped)
-        {
-		printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i  *DROPPED*\n", 
-					recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
-            continue;
-        }
-        else if (corrupt)
-                printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i  *CORRUPTED*\n", 
-					recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
-
-
-
-        //File not found on server
-        if(recvpacket->ack == 0 && recvpacket->seq != 0)
-        {
-            fprintf(stderr, "Server encountered error\n");
-            break;
-        }
-	/*if(recvpacket->ack == 0 && recvpacket->seq == 0) {
-	    ackpacket.length = strlen(argv[3])+1;
-	}*/
-
-        printf("got here\n");
-
-        if (!corrupt)
-		  printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i\n", 
-        	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
-		
-        // ACK response Packet
-        //packet* ackPacket;
-		//ackPacket->seq = 0;
-        //ackPacket->length = 0;
-        //ackPacket->fin = 0;
-
         packet ackpacket;
         ackpacket.seq = recvpacket->ack;
+        ackpacket.ack = 0;
         ackpacket.fin = 0;
         ackpacket.length = 0; 
 
+        // Packet Lost or Dropped
+        if (dropped) {
+            printf("DATA received seq#%i, ACK#%i, FIN %i, content-length: %i  *DROPPED*\n", 
+				recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
+            continue;
+        }
+        else if (corrupt) {
+            printf("DATA received seq#%i, ACK#%i, FIN %i, content-length: %i  *CORRUPTED*\n", 
+				recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
+            if(recvpacket->ack == 0 && recvpacket->seq == 0) {
+                ackpacket.length = strlen(argv[3])+1;
+            }
+            else{
+                ackpacket.ack = seqCount;
+                ackpacket.seq = recvpacket->ack;
+            }
+        }
+        else {
 
-	if(recvpacket->ack == 0 && recvpacket->seq == 0 && corrupt) {
-	    ackpacket.length = strlen(argv[3])+1;
-	}
 
-        // Checks if the received packet is the expected sequence # or if corrupt
-        if (recvpacket->seq != seqCount || corrupt) {
-            ackpacket.ack = seqCount;
-	   }
-        else
-        {
-            ackpacket.seq = recvpacket->ack; // Sequence # doesn't matter so just set the client seq to the server ack
-	    ackpacket.ack = recvpacket->seq + recvpacket->length; // ACK = received sequence # + length of data packet
-            seqCount = recvpacket->seq + recvpacket->length; // Update the expected sequence #
-
-            // realloc more memory as needed
-            if (bytesRead + recvpacket->length > memSize)
+            //File not found on server
+            if(recvpacket->ack == 0 && recvpacket->seq == 0)
             {
-                memSize += PACKET_SIZE;
-                newFile = realloc(newFile, sizeof(char)*memSize);
+                fprintf(stderr, "Server encountered error\n");
+                break;
             }
 
-            // Store data
-            memcpy(newFile + bytesRead, recvpacket->data, recvpacket->length);
-            bytesRead += recvpacket->length;
+            printf("DATA received seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
+                recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
-        }
+            // Checks if the received packet is the expected sequence # or if corrupt
+            if (recvpacket->seq != seqCount) {
+                ackpacket.ack = seqCount;
+    	    }
 
-	   
+            else
+            {
+                ackpacket.seq = recvpacket->ack; // Sequence # doesn't matter so just set the client seq to the server ack
+    	        ackpacket.ack = recvpacket->seq + recvpacket->length; // ACK = received sequence # + length of data packet
+                seqCount = recvpacket->seq + recvpacket->length; // Update the expected sequence #
 
-	   //File download complete. Write file to disk and break.
-        if(recvpacket->fin == 1)
-        {
-            printf("File Transmission Complete, saving file as recv_%s\n", argv[3]);
-            char* newFileName = malloc(sizeof(char)*(strlen(argv[3])) + 6);
-            strcpy(newFileName, "recv_");
-            strcat(newFileName, argv[3]);
+                // realloc more memory as needed
+                if (bytesRead + recvpacket->length > memSize)
+                {
+                    memSize += PACKET_SIZE;
+                    newFile = realloc(newFile, sizeof(char)*memSize);
+                }
 
-            FILE* fp = fopen(newFileName, "w");
-            fwrite(newFile, 1, bytesRead, fp);
-            fclose(fp);
+                // Store data
+                memcpy(newFile + bytesRead, recvpacket->data, recvpacket->length);
+                bytesRead += recvpacket->length;
 
-            ackpacket.fin = 1;
+            }
 
-            sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
-            if (sent < 0)
-           {
-                error("ERROR: sending failed"); 
-                return 0;
-           }
-           printf("FINACK sent: seq#%i, ack#%i, fin %i, content-length: %i\n", 
-                ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
+    	   
 
-            break;
-        }
+    	   //File download complete. Write file to disk and break.
+            if(recvpacket->fin == 1)
+            {
+                printf("file transfer complete, saving file as recv_%s\n", argv[3]);
+                char* newFileName = malloc(sizeof(char)*(strlen(argv[3])) + 6);
+                strcpy(newFileName, "recv_");
+                strcat(newFileName, argv[3]);
 
-        // Send ACK with proper sequence number
-       //if (sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-	// If the first data packet is corrupt, then re-send request
-       if(recvpacket->ack == strlen(argv[3])+1 && recvpacket->seq == 0 && corrupt) {
-			ackpacket.length = strlen(argv[3])+1;
-		}
+                FILE* fp = fopen(newFileName, "w");
+                fwrite(newFile, 1, bytesRead, fp);
+                fclose(fp);
+
+                ackpacket.fin = 1;
+
+                sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
+                if (sent < 0) {
+                    error("ERROR: sending failed"); 
+                    return 0;
+                }
+                printf("FINACK sent: seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
+                    ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
+                printf("close connection\n");
+                break;
+            }
+
+            // Send ACK with proper sequence number
+           //if (sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    	// If the first data packet is corrupt, then re-send request
+           if(recvpacket->ack == strlen(argv[3])+1 && recvpacket->seq == 0 && corrupt) {
+    			ackpacket.length = strlen(argv[3])+1;
+    		}
+        } // end else
        sent = sendto(sockfd, &ackpacket, HEADER_SIZE, 0, (struct sockaddr *)&serv_addr, servlen);
-       if (sent < 0)
-       {
+       if (sent < 0) {
             error("ERROR: sending failed"); 
             return 0;
        }
-       printf("ACK sent: seq#%i, ack#%i, fin %i, content-length: %i\n", 
+       printf("ACK sent: seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
             ackpacket.seq, ackpacket.ack, ackpacket.fin, ackpacket.length);
 
-       } // end while
+    } // end while
 	
     free(buffer);
     free(newFile);

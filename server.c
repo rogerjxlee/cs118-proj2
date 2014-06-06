@@ -14,7 +14,7 @@
 #define HEADER_SIZE 4*4
 #define PACKET_SIZE MAX_DATA_SIZE + HEADER_SIZE
 
-#define TIMEOUT 5
+#define TIMEOUT 2
 
 typedef struct  
 {
@@ -112,8 +112,10 @@ int main(int argc, char *argv[]) {
 
         recvpacket = (packet*) buf;
         
-        printf("DATA received seq#%i, ack#%i, fin %i, content-length: %i\n", 
+        printf("DATA received seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
         	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
+
+        printf("File requested is \"%s\"\n", recvpacket->data);
 
         if(recvpacket-> seq== 0 && recvpacket->ack == 0) {
         	fp = fopen(recvpacket->data,"rb");
@@ -121,6 +123,8 @@ int main(int argc, char *argv[]) {
         		packet errorpacket;
         		errorpacket.seq = 0;
         		errorpacket.ack = 0;
+                errorpacket.fin = 0;
+                errorpacket.length = 0;
         		strcpy(errorpacket.data, "File not found");
         		sendto(sockfd, &errorpacket, HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
                 fprintf(stderr, "File \"%s\" not found \n", recvpacket->data);
@@ -139,7 +143,7 @@ int main(int argc, char *argv[]) {
 
             int i;
             for (i = 0; i < numpackets; i++) {
-            	if (i == numpackets-1) {
+            	if (i == numpackets-1 && remainingbytes != 0) {
             		packets[i].length = remainingbytes;
             	}
             	else {
@@ -151,15 +155,13 @@ int main(int argc, char *argv[]) {
 				memcpy(packets[i].data , contents + packets[i].seq, packets[i].length);
             }
 
-            printf("Data: %s\n",packets[0].data);
-
             int cwndhead = 0;
 			int cwndtail = cwnd;
-            printf("numpackets:%i\n",numpackets);
+            //printf("numpackets:%i\n",numpackets);
 			for (i = cwndhead; i < cwndtail; i++) {
 				if (i < numpackets) {
 					sendto(sockfd, &(packets[i]), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-					printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+					printf("DATA sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
 	        			packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 				}
 			}
@@ -169,7 +171,7 @@ int main(int argc, char *argv[]) {
 				FD_SET(sockfd, &readfds);
 				readysocks = select(sockfd+1, &readfds, NULL, NULL, &tv);
 
-                printf("readysocks: %i\n",readysocks);
+                //printf("readysocks: %i\n",readysocks);
 
 				if (readysocks == -1) {
 					error("Select sockets error\n");
@@ -196,21 +198,26 @@ int main(int argc, char *argv[]) {
 				    printf("ACK received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 				    int lastsent = cwndtail;
-				    if(!(recvpacket->ack == 0 && recvpacket->seq == 0 && recvpacket->length != 0)) {
-				   	printf("sliding window\n");
 
-				   	lastsent = cwndtail;
+				    //if(!(recvpacket->ack == 0 && recvpacket->seq == 0 && recvpacket->length != 0)) {
+				   	    
+				   	    lastsent = cwndtail;
+                        int requestedpacket = recvpacket->ack / MAX_DATA_SIZE + (recvpacket->ack % MAX_DATA_SIZE > 0);
+                        //printf("cwndhead: %i\n", cwndhead);
+                        //printf("ackpack/size: %i\n", requestedpacket);
 
-				   	if (recvpacket->ack / PACKET_SIZE > cwndhead) {
-				   		cwndhead = recvpacket->ack / PACKET_SIZE;
-				    	cwndtail = cwndhead + cwnd;	
-				   	}
-				    }
+				   	    if (requestedpacket > cwndhead) {
+                            
+    				   		cwndhead = requestedpacket;
+				    	    cwndtail = cwndhead + cwnd;	
+                            printf("sliding window\n");
+				   	    }
+				    //}
 				    
-				    for (i = lastsent + 1; i < cwndtail; i++) {
+				    for (i = lastsent; i < cwndtail; i++) {
 				    	if (i < numpackets) {
-				    		sendto(sockfd, (const void *) (packets + i * PACKET_SIZE), packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-				    		printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+				    		sendto(sockfd, &packets[i], packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
+				    		printf("DATA sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
 	        					packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 						}
 				    }
@@ -218,6 +225,7 @@ int main(int argc, char *argv[]) {
 						printf("file transfer complete\n");
 						break;
 					}
+
 				}
 				else {
 					printf("timeout, retransmitting packets in window\n");
@@ -225,29 +233,30 @@ int main(int argc, char *argv[]) {
 						if (i < numpackets) {
                             printf("packet %i\n", i);
 							sendto(sockfd, &packets[i], packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-							printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+							printf("DATA sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
 			        			packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
 						}
 					}
 					tv.tv_sec = TIMEOUT;
 				}
+                tv.tv_sec = TIMEOUT;
 			}
 
         	tv.tv_sec = TIMEOUT;
         	cwndhead = 0;
         	cwndtail = cwnd;
-		packet finpacket;
+		    packet finpacket;
         	//Fin and Finack
-		printf("File size: %i\n", (int)filesize);
-		if(!(recvpacket->seq == 0 && recvpacket->ack == 0 && recvpacket->length != 0) && recvpacket->ack == filesize) {
+            printf("File size: %i\n", (int)filesize);
+            if(!(recvpacket->seq == 0 && recvpacket->ack == 0 && recvpacket->length != 0) && recvpacket->ack == filesize) {
         		finpacket.seq = recvpacket->ack;
         		finpacket.ack = recvpacket->seq;
         		finpacket.fin = 1;
         		finpacket.length = 0;
         		sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-        		printf("DATA sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+        		printf("DATA sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
 			        			finpacket.seq, finpacket.ack, finpacket.fin, finpacket.length);
-		}
+            }
 
         	while(1) {
         		FD_SET(sockfd, &readfds);
@@ -256,7 +265,6 @@ int main(int argc, char *argv[]) {
 				if (readysocks == -1) {
 					error("Select sockets error\n");
 				}
-
 				else if(readysocks) {
 					recvlen = recvfrom(sockfd, buf, PACKET_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
 
@@ -270,29 +278,36 @@ int main(int argc, char *argv[]) {
 					int lost = lostorcorrupt(pl);
 				    int corrupt = lostorcorrupt(pc);
 
+                    printf("lost %i\n", lost);
+                    printf("corrupt %i\n", corrupt);
+
 				    if (lost || corrupt) {
 				    	printf("(ACK lost or corrupted) Timeout\n");
 				    	continue;
 				    }
 
-				    printf("FINACK received seq#%i, ack#%i, fin %i, content-length: %i\n",
+				    printf("FINACK received seq#%i, ACK#%i, FIN %i, content-length: %i\n",
 				    	recvpacket->seq, recvpacket->ack, recvpacket->fin, recvpacket->length);
 
-				packet finackpacket;
+				    packet finackpacket;
 		        	finackpacket.seq = recvpacket->ack;
 		        	finackpacket.ack = recvpacket->seq;
 		        	finackpacket.fin = 1;
 		        	finackpacket.length = 0;
 		        	sendto(sockfd, &finackpacket, finackpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
-		        	printf("FINACK sent seq#%i, ack#%i, fin %i, content-length: %i\n", 
+		        	printf("FINACK sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
 					        			finackpacket.seq, finackpacket.ack, finackpacket.fin, finackpacket.length);
+                    printf("close connection\n");
 				    break;
 				}
-				else if(!(recvpacket->seq == 0 && recvpacket->ack == 0 && recvpacket->length != 0) && recvpacket->ack == filesize) {
+				else {
 					printf("timeout, retransmitting fin\n");
 					sendto(sockfd, &finpacket, finpacket.length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
+                    printf("DATA sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
+                        finpacket.seq, finpacket.ack, finpacket.fin, finpacket.length);
 					tv.tv_sec = TIMEOUT;
 				}
+                tv.tv_sec = TIMEOUT;
         	}
         }
 
