@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
 					printf("timeout, retransmitting packets in window\n");
 					for (i = cwndhead; i < cwndtail; i++) {
 						if (i < numpackets) {
-                            printf("packet %i\n", i);
+                            //printf("packet %i\n", i);
 							sendto(sockfd, &packets[i], packets[i].length + HEADER_SIZE, 0, (struct sockaddr *)&cli_addr, clilen);
 							printf("DATA sent seq#%i, ACK#%i, FIN %i, content-length: %i\n", 
 			        			packets[i].seq, packets[i].ack, packets[i].fin, packets[i].length);
